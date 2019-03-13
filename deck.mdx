@@ -1,0 +1,224 @@
+export { future as theme } from 'mdx-deck/themes'
+
+# About?
+
+- We'll examine the factors that have historically slowed down requests, and what was and is being done to workaround them.
+
+---
+
+## Topics
+
+- Latency.
+- Edge/Fog computing.
+- Workers
+- A brief history of TCP-UDP/HTTP: HTTP/1.1, SPDY, HTTP/2, HTTP/3, QUIC.
+- Multiplexing, Server Push, Header Compression.
+- HTTPS performance implications: TLS 1.2, TLS 1.3, 0-RTT, QUIC.
+- HSTS and HSTS Preloading.
+- Caching: max-age, s-maxage, stale-while-revalidate, stale-if-error, immutable.
+- async and rel=preload.
+- Reducing bundle size: ES5/6 bundles, Closure compiler.
+
+---
+
+## What makes a request fast?
+
+- **Not** making it (local cache).
+- Making it to a **close** server (CDN).
+- Making it with the **fewest amount of round trips** (TLS 1.3, 0-RTT, QUIC, Server Push)
+- Serving **small** packages (Brotli compression, Header Compression, Closure minification/re-write, Closure dead code removal, ES6 code for supporting browsers).
+- To make lots of requests fast: Multiplexing, Head of Line Blocking prevention.
+
+---
+
+## Latency
+
+- Speed of light limit (actually less, as of index of refraction of the materials).
+- **Distance** will always affect latency.
+- Different mediums have different inherent latencies: cable, LTE, wifi (5.8 Ghz has lower latency than 2.4), 3g, 2g.
+- The RTT is the time between a request is sent and response's TTFB.
+- A single HTTPS call often involves **multiple RTs** (DNS, TCP, TLS(x2), HTTP).
+
+---
+
+## Edge/Fog computing
+
+- CDNs reduce the distance between consumers and content.
+- Edge computing relies on using those Points of Presence to compute things.
+- Serverless with minimum latency.
+
+---
+
+## Workers: What
+
+- Edge computing on top of CF's infrastructure.
+- Client -> CF security layer (DDoS prevention, WAF) -> Worker -> Cache -> Origin.
+- They let's use modify our assets dynamically before sending them to the client, with virtually infinite scaling, and zero configuration.
+- They have access to a database that is distributed in all PoPs (Workers KV).
+
+---
+
+## Workers: Implementation
+- They use v8 isolates, which are much more **memory efficient** and have way **smaller cold starts** than containers.
+- They use the Service Workers specification. You can basically run a worker as a service worker in your browser (except for the Workers KV connection).
+- They don't use Node.js because Node.js was not meant for **multitenant environments**, and also it has slower cold starts. Also, by design, no disk access is intended from Workers.
+- Physical machines, VMs, containers, processes, isolates.
+
+---
+
+# Evolution of network protocols
+
+- HTTP -> TCP -> IP.
+- HTTP -> TLS 1.1/1.2 -> TCP -> IP.
+- SPDY -> TLS 1.1/1.2 -> TCP -> IP.
+- HTTP/2 -> TLS 1.3 -> TCP -> IP.
+- HTTP/3 -> QUIC -> UDP -> IP. Not quite here yet.
+
+---
+
+## Transport protocols: TCP-UDP
+
+- UDP is **fast** but doesn't guarantee neither order nor that the package will be received. Example usages are gaming and live streaming.
+- TCP is **slower** but guarantees the above. It's used for most things.
+
+---
+
+## HTTP
+
+- Application layer that handles how we make requests.
+- Originally designed without security taken into account.
+- SSL was introduced later, when security started being a concern.
+- TLS is the succesor of SSL. Faster and more secure.
+
+---
+
+## Why do we want HTTPS?
+
+- Data privacy and integrity.
+- It's a requirement for more modern and way more performant protocols: HTTP/2, QUIC, Brotli compression.
+- We don't want the browser to show our site as insecure.
+
+---
+
+## What problem did HTTPS introduce?
+
+- More latency, as of additional round trips.
+- This became specially relevant with mobile devices, where the RTT is higher.
+
+---
+
+## The TLS handshake
+
+- TLS uses assimetric encryption, which requires client and server to agree on a symetric key after an exchange involving a public and a private key.
+
+---
+
+## TLS 1.1/1.2
+
+- For new client, 2 round trips:
+  - Client -> supported cipher suites (encryption algorithms) and TLS version.
+  - Server -> public and selected cipher suite.
+  - Client -> pre-secret (encrypted with the public key). Both use that to create the symetric key.
+  - Server replies ok.
+  - Application data starts to move.
+- For recurrent clients, 1 rountrip: the first one is avoided (as the client knows the cipher suite and public cert it can use)
+
+---
+
+## TLS 1.3
+
+- For new client, 1 rountrip:
+  - Client assumes cipher suite and send key exchange.
+  - Server generates the symetric key and replies with another signed (with the private key) key exchange.
+  - Client validates the received key, creates the symetric key on its side, and starts sending data.
+- For recurrent clients, there is only a save if 0-RTT is enabled: in that case the TLS call is made along with the first Application request.
+- Additional privacy feature: enforces Perfect Forward Secrecy.
+
+---
+
+## HTTP 1.1 problems
+
+- 1 request per TCP connection. Browsers only allowed about 6 TCP connections to a domain.
+- Head of Line Blocking (1 slow request delaying other stuff).
+
+---
+
+## SPDY
+
+- Ad providers want a faster web to show more ads for more time.
+- Google pioneered HTTP/2 with it's own implementation (around 2012).
+- SPDY had Multiplexing and (initially) Header Compression. Header Compression was later disabled for security concerns.
+- Header Compression might not sound like a big thing, but many times most of the length or a response is from the headers (it could be like 0.5 KBs). Also cookies are part of the headers.
+
+---
+
+## HTTP/2
+
+- Released around 2016.
+- An open protocol built to replace SPDY.
+- 3 main features: Multiplexing, Server Push, and Header Compression.
+- Multiplexing allows to send multiple requests within a single TCP connection. No HTTP Head of Line Blocking.
+- Server push allows the server to send assets before the browser asks for them (saving a round trip).
+- It requires TLS 1.3.
+
+---
+
+### Number of requests problem
+
+- Before HTTP/2, given the limited number of connections, making too many requests was an issue (since many of them would get blocked until the others where completed). With multiplexing that's gone.
+- Having a few big bundle files (JS, CSS) went from a pattern to an anti-pattern.
+
+---
+
+## (gQUIC) QUIC - HTTP/3
+
+- QUIC: HTTPS over UDP.
+- UDP allows for faster networking, and QUIC takes care of ensuring packages are sent correctly.
+- Solves Head of Line Blocking at the transport level. If a package gets blocked or needs to be re-sent it only block the stream where that package belongs, and not the whole connection.
+- Allows to make the UDP and TLS handshakes in the same round trip.
+- 3 round trips for an HTTPS request (regardless of 1st visit or recurrent): DNS -> UDP/TLS -> HTTP.
+- HTTP/3 is the version of HTTP that will be compatible with QUIC.
+
+---
+
+## HSTS
+
+- We want HTTPS everywhere: it's secure and it's demanded by the most performant protocols (HTTP/2, QUIC).
+- Consumers can place our links as plain HTTP. We don't want that.
+- 301 redirections to HTTPS are not performant (extra round trip).
+- HSTS lets the server tell the client that it can use HTTPS for subsequent calls. Browsers will remember that and use HTTPS on next calls.
+- That solves it for all but the first call (and the first call after HSTS' TTL expires).
+- HSTS Preload Lists lets you publish your site to a list, so that browsers can know before hand to use HTTPS. 
+
+---
+
+## Caching on the browser
+
+- max-age tells the browser for how much time it can consider the asset as fresh. Chrome requests it again on refreshes even if the asset hasn't expire (you can get a 304 response).
+- immutable: pretty self-explanatory.
+
+---
+
+## Catching on the Edge
+
+- s-maxage tells any intermidate proxy (e.g.: a CDN) for how much time it should keep the asset in cache.
+- stale-while-revalidate tells the client to use the stale resource while it's revalidating it. (note about CF's behaviour on this: the first request will wait for the revalidation, but all requests that come in between that and the revalidation will use the stale resource.)
+- stale-if-error tells the client to use the stale resource if it receives an error.
+- stale-while-revalidate/error are implemented in CF, but doesn't seem to work yet on Chrome.
+
+---
+
+## Async scripts and rel=preload
+
+- Async scripts are better in the sense that they don't block the execution of JS files requires below them, and also they don't block DOM rendering.
+- It's important to know that browsers don't wait for the sync scripts on the top to be ready before downloading the ones below. They only wait to execute them.
+- The problem with async scripts is that the browser will prioritize the sync ones, and sometimes you don't want that.
+- rel=preload let's you give any particular async-sourced script the same priority as a sync one.
+
+---
+
+## Making the code as small as possible: Closure compiler
+
+- Removes dead code.
+- Re-writes the code in a way that it does the same but with less characters (not just mangling variables).
+- It mangles variable in an un-revertable way. For this, it requires some work to make it compatible with external libraries and API responses.

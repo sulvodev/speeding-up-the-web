@@ -1,0 +1,13 @@
+{
+  "name": "speeding-up-the-web",
+  "version": "1.0.0",
+  "dependencies": {
+    "mdx-deck": "^1.10.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "start": "mdx-deck deck.mdx"
+  },
+  "author": "Tomas Romero",
+  "license": "ISC"
+}
